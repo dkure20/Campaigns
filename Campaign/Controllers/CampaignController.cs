@@ -17,14 +17,14 @@ namespace Campaign.Controllers
         [HttpPost("Create")]
         public async Task<IActionResult> Create(RequestCampaign campaign)
         {
-           await _campaign.CreateCampaign(campaign);
-            return Ok(campaign);
+           var id =  await _campaign.CreateCampaign(campaign);
+            return Ok(id);
         }
 
         [HttpPut("ChangeState")]
-        public async Task<IActionResult> StateChange(string campaignName, State state)
+        public async Task<IActionResult> StateChange(int id, State state)
         {
-            await _campaign.ChangeCampaignState(campaignName, state);
+            await _campaign.ChangeCampaignState(id, state);
             return Ok();
         }
         [HttpPut("Edit")]
@@ -34,9 +34,9 @@ namespace Campaign.Controllers
             return Ok();
         }
         [HttpPut("ChangeStatus")]
-        public async Task<IActionResult> StatusChange(string campaignName, Status status)
+        public async Task<IActionResult> StatusChange(int id, Status status)
         {
-            await _campaign.ChangeCampaignStatus(campaignName, status);
+            await _campaign.ChangeCampaignStatus(id, status);
             return Ok();
         }
         [HttpDelete("DeleteCampaign")]

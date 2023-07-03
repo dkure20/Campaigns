@@ -14,38 +14,38 @@ namespace Campaign.Services
             _Connection = connectionString.Value;
         }
 
-        public async Task ChangeCampaignState(string campaignName, State newState)
+        public async Task ChangeCampaignState(int id, State newState)
         {
             using (var connect = new NpgsqlConnection(_Connection.ConnectionString))
             {
-                var query = "SELECT state from campaign where campaign_name = @campaignName";
-                var previousState = await connect.QuerySingleOrDefaultAsync<State>(query, new { campaignName });
+                var query = "SELECT state from campaign where id = @id";
+                var previousState = await connect.QuerySingleOrDefaultAsync<State>(query, new { id });
                 if (previousState == State.UnPublished && newState == State.Published)
                 {
-                    var updateUnpublishedState = "Update campaign set state = @newState, status = 0 where campaign_name = @campaignName";
-                    await connect.ExecuteAsync(updateUnpublishedState, new { newState, campaignName });
+                    var updateUnpublishedState = "Update campaign set state = @newState, status = 0 where id = @id";
+                    await connect.ExecuteAsync(updateUnpublishedState, new { newState, id });
                 }
             }
         }
 
-        public async Task ChangeCampaignStatus(string campaignName, Status status)
+        public async Task ChangeCampaignStatus(int id, Status status)
         {
             using (var connect = new NpgsqlConnection(_Connection.ConnectionString))
             {
                 if(status == Status.Active || status == Status.ReActivated)
                 {
-                var query = "Update campaign set state = 1, status = @status where campaign_name = @campaignName";
-                await connect.ExecuteAsync(query, new { status, campaignName });
+                var query = "Update campaign set state = 1, status = @status where id = @id";
+                await connect.ExecuteAsync(query, new { status, id });
                 }
                 else if (status == Status.Cancelled)
                 {
-                    var query = "Update campaign set state = 0, status = @status where campaign_name = @campaignName";
-                    await connect.ExecuteAsync(query, new { status, campaignName });
+                    var query = "Update campaign set state = 0, status = @status where id = @id";
+                    await connect.ExecuteAsync(query, new { status, id });
                 }
             }
         }
 
-        public async Task CreateCampaign(RequestCampaign requestCampaign)
+        public async Task<int> CreateCampaign(RequestCampaign requestCampaign)
         {
             CampaignInfo campaignInfo = new CampaignInfo();
             campaignInfo.CreateDate = DateTime.UtcNow;
@@ -56,11 +56,25 @@ namespace Campaign.Services
             campaignInfo.State = State.UnPublished;
             campaignInfo.Status = Status.Initialized;
             campaignInfo.IsDeleted = false;
-            using (var connect = new NpgsqlConnection(_Connection.ConnectionString))
+            try
             {
-                var query = "INSERT INTO campaign (create_date,campaign_name,start_date, end_date, reward_type,status,state,is_deleted) values (@CreateDate, @CampaignName,@StartDate,@EndDate,@RewardType,@Status,@State,@IsDeleted);";
-                await connect.ExecuteAsync(query, campaignInfo);
+                using (var connect = new NpgsqlConnection(_Connection.ConnectionString))
+                {
+                    var query = @"
+                         INSERT INTO 
+            campaign (create_date, campaign_name, start_date, end_date, reward_type, status, state, is_deleted) 
+            VALUES (@CreateDate, @CampaignName, @StartDate, @EndDate, @RewardType, @Status, @State, @IsDeleted)
+                    RETURNING id;";
+                    int insertedCampaignId = await connect.ExecuteScalarAsync<int>(query, campaignInfo);
+                    return insertedCampaignId;
+                }
             }
+            catch
+            {
+                throw new Exception("Error Occured while creating new Campaign");
+            }
+
+            
         }
 
         public async Task DeleteCampaign(int id)
@@ -129,13 +143,33 @@ namespace Campaign.Services
 
         }
 
-        public async Task<List<CampaignInfo>> FilterCampaigns(Filter filter)
+        public async Task<FilteredCampaigns> FilterCampaigns(Filter filter)
         {
+            FilteredCampaigns filteredCampaigns = new FilteredCampaigns();
             using (var connect = new NpgsqlConnection(_Connection.ConnectionString))
             {
-                var query = "select create_date as CreateDate, campaign_name as CampaignName, start_date as StartDate, end_date as EndDate, reward_type as RewardType, state as State, status as Status from campaign where (campaign_name like @CampaignName || '%' or @CampaignName is null) and (reward_type = @RewardType or @RewardType is null) and (state = @State or @State is null) and (status = @Status or @Status is Null) and (start_date = @StartDate or @StartDate is null) and (end_date = @EndDate or @EndDate is null) limit @AmountOfCampaign offset @PageId";
+                var query = @"select create_date as CreateDate
+                        , campaign_name as CampaignName
+                        , start_date as StartDate
+                        , end_date as EndDate
+                        , reward_type as RewardType
+                        , state as State
+                        , status as Status 
+                        from campaign 
+                            where (campaign_name like @CampaignName || '%' or @CampaignName is null) 
+                            and (reward_type = @RewardType or @RewardType is null)
+                            and (state = @State or @State is null) 
+                            and (status = @Status or @Status is Null) and
+                            (start_date >= @StartDate or @StartDate is null) 
+                            and (end_date <= @EndDate or @EndDate is null) 
+                                limit @AmountOfCampaign 
+                                offset @PageId";
+                var totalAmountQuery = "SELECT count(*) from campaign";
                 var result = await connect.QueryAsync<CampaignInfo>(query, filter);
-                return result.ToList();
+                var totalResult = await connect.QuerySingleOrDefaultAsync<int> (totalAmountQuery);
+                filteredCampaigns.CampaignList = result.ToList();
+                filteredCampaigns.TotalCampaigns = totalResult;
+                return filteredCampaigns;
             }
         }
     }
